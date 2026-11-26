@@ -5,6 +5,16 @@ import { log } from './paths.ts';
 import { loadTheme } from './theme.ts';
 import type { DiffSource } from './types.ts';
 
+/**
+ * Where the worker entry lives. From source it sits next to this file. In a `bun build --compile`
+ * binary every module is bundled into the root entry, and the worker entry is stored relative to the
+ * common source root (src/), so it is at core/highlight-worker.ts beside the binary's bundle.
+ */
+export function workerUrl(metaUrl = import.meta.url): string {
+  if (metaUrl.includes('$bunfs')) return new URL('./core/highlight-worker.ts', metaUrl).href;
+  return new URL('./highlight-worker.ts', metaUrl).href;
+}
+
 type Listener = (path: string, tokens: FileTokens) => void;
 
 /** Runs highlighting in a Bun Worker, falling back to the main thread if a worker cannot start. */
@@ -31,7 +41,7 @@ export class HighlightClient {
   async start(src: DiffSource, files: HighlightFile[]): Promise<void> {
     if (this.opts.useWorker !== false) {
       try {
-        const w = new Worker(new URL('./highlight-worker.ts', import.meta.url).href);
+        const w = new Worker(workerUrl());
         w.onmessage = (ev: MessageEvent) => {
           const m = ev.data as { type: string; path?: string; tokens?: FileTokens; message?: string };
           if (m.type === 'tokens' && m.path && m.tokens) this.emit(m.path, m.tokens);

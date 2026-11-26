@@ -133,3 +133,9 @@ describe('highlighting', () => {
     expect(got.get('view.tsx')!.new!.length).toBeGreaterThan(30);
   }, 20000);
 });
+
+test('worker URL resolves next to the client from source and under core/ in a compiled binary', async () => {
+  const { workerUrl } = await import('../../src/core/highlight-client.ts');
+  expect(workerUrl('file:///repo/src/core/highlight-client.ts')).toBe('file:///repo/src/core/highlight-worker.ts');
+  expect(workerUrl('file:///$bunfs/root/rv-linux-x64')).toBe('file:///$bunfs/root/core/highlight-worker.ts');
+});

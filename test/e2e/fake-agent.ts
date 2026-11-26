@@ -1,4 +1,5 @@
 // A scripted agent that drives rv only through the CLI, the way the skill tells real agents to.
+export {};
 const RV = process.env.RV_CMD ?? 'rv';
 
 async function rv(args: string[], stdin?: string) {
