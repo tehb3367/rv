@@ -197,3 +197,57 @@ describe('controller', () => {
     expect(ctl.scroll).toBe(0);
   });
 });
+
+describe('phone-sized terminals', () => {
+  beforeEach(setup);
+
+  test('compact below 60 columns or 24 rows: no docked pane, wrap on, one number column', () => {
+    ctl.resize(45, 20);
+    expect(ctl.compact).toBe(true);
+    expect(ctl.sidebarDocked).toBe(false);
+    expect(ctl.wrap).toBe(true);
+    expect(ctl.paneWidth).toBe(45);
+    expect(ctl.paneHeight).toBe(17); // header, title row, footer
+    press('w');
+    expect(ctl.wrap).toBe(false);
+    ctl.resize(110, 20); // landscape phone: wide but short
+    expect(ctl.compact).toBe(true);
+    expect(ctl.canDock).toBe(false);
+    press('b');
+    expect(ctl.sideOverlay).toBe(true);
+    expect(ctl.sideWidth).toBe(50);
+    ctl.resize(160, 48);
+    expect(ctl.compact).toBe(false);
+    expect(ctl.sideOverlay).toBe(false);
+    expect(ctl.sidebarDocked).toBe(true);
+  });
+
+  test('too small below 24x8', () => {
+    ctl.resize(20, 6);
+    expect(ctl.tooSmall).toBe(true);
+    ctl.resize(24, 8);
+    expect(ctl.tooSmall).toBe(false);
+  });
+
+  test('help scrolls with j/k and closes on any other key', () => {
+    ctl.resize(45, 12);
+    press('H');
+    expect(ctl.overlay).toEqual({ type: 'help', scroll: 0 });
+    press('j', 'j');
+    expect(ctl.overlay).toEqual({ type: 'help', scroll: 2 });
+    press('k');
+    expect(ctl.overlay).toEqual({ type: 'help', scroll: 1 });
+    press('x');
+    expect(ctl.overlay).toBeNull();
+  });
+
+  test('the editor grows with wrapped text, capped on small screens', () => {
+    ctl.resize(45, 20);
+    press('n', 'j', '?');
+    expect(ctl.editorHeight).toBe(3);
+    type('a fairly long question that will certainly wrap across a few lines on a phone screen');
+    expect(ctl.editorHeight).toBe(4); // 2 wrapped lines + border
+    type(' and keeps going and going and going and going and going and going and going');
+    expect(ctl.editorHeight).toBe(6); // 4 lines + border
+  });
+});

@@ -57,13 +57,27 @@ the diff with `rv review`, posts a plan with `rv stack set`, and answers your qu
 | `E` | Export markdown (clipboard via OSC 52, and `<git dir>/rv/export.md`) |
 | `P` | Submit to GitHub (Comment, Approve, Request changes, Draft) |
 | `R` | Reload the diff |
-| `w` | Toggle line wrap |
+| `w` | Toggle line wrap (on by default in compact layouts) |
 | `b` | Toggle layers pane |
 | `H` | Help |
 | `q` | Quit (confirms if asks are unsent or review comments unsubmitted) |
 
 In the comment editor: `Enter` saves, `Ctrl-j` adds a newline, `Ctrl-e` opens `$EDITOR`, `Esc` cancels.
 Mouse: the wheel scrolls the pane under the pointer, and clicking a layer opens it.
+
+## Small screens and phones
+
+rv adapts to the terminal size, so it works over SSH from a phone (Termius, Blink, a mobile terminal app):
+
+- **Under 100 columns** the layers pane hides; `b` (or `Tab`) opens it as an overlay, `Enter` picks a layer.
+- **Under 60 columns or 24 rows** rv switches to a compact layout: no pane border (the layer title is a
+  single row), one line-number column instead of two, line wrap on by default (breaking at word
+  boundaries; `w` toggles it), shortened paths, and a short header and key hint line. Help (`H`) scrolls
+  with `j`/`k`, and dialogs wrap to the screen.
+- **Under 24×8** rv shows a "terminal too small" notice until you resize.
+
+Touch scrolling arrives as mouse-wheel events and scrolls the pane under your finger. Without an `Esc` key,
+saving an empty comment also closes the editor.
 
 ## Install the agent skill
 

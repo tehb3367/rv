@@ -13,8 +13,15 @@ import type { Session } from '../server/session.ts';
 import { buildKeymap, keyString, type RawKey } from './keys.ts';
 import { anchorOf, buildRows, type BuiltRows, type Row } from './rows.ts';
 import { styleLine, type StyledText } from './render.ts';
+import { wrap } from './text.ts';
 
 export const NARROW = 100;
+/** Below this the layout goes compact (phones): no pane border, one number column, wrap on. */
+export const COMPACT_WIDTH = 60;
+export const COMPACT_HEIGHT = 24;
+/** Below this nothing useful fits. */
+export const MIN_WIDTH = 24;
+export const MIN_HEIGHT = 8;
 export const SUBMIT_CHOICES: { label: string; event: NonNullable<SubmitRequest['event']> }[] = [
   { label: 'Comment', event: 'COMMENT' },
   { label: 'Approve', event: 'APPROVE' },
@@ -32,7 +39,7 @@ export type Editor = {
 };
 
 export type Overlay =
-  | { type: 'help' }
+  | { type: 'help'; scroll: number }
   | { type: 'picker'; sel: number }
   | { type: 'confirm'; message: string; onYes: () => void | Promise<void> };
 
@@ -59,7 +66,8 @@ export class Controller {
   sideSel = 0;
   sideOverlay = false;
   sideHidden = false;
-  wrap: boolean;
+  /** Set by `w`; until then wrap follows the config, and is on in compact layouts. */
+  wrapOverride: boolean | null = null;
   toggled = new Set<string>();
   overlay: Overlay | null = null;
   editor: Editor | null = null;
@@ -75,7 +83,6 @@ export class Controller {
   private unsub: () => void;
 
   constructor(readonly deps: ControllerDeps) {
-    this.wrap = deps.config.layout.wrap;
     this.keymap = buildKeymap(deps.config.keys);
     this.unsub = deps.session.bus.on((e) => this.onEvent(e));
     this.prioritizeHighlight();
@@ -108,8 +115,25 @@ export class Controller {
     return this.width < NARROW;
   }
 
+  get compact(): boolean {
+    return this.width < COMPACT_WIDTH || this.height < COMPACT_HEIGHT;
+  }
+
+  get tooSmall(): boolean {
+    return this.width < MIN_WIDTH || this.height < MIN_HEIGHT;
+  }
+
+  get wrap(): boolean {
+    return this.wrapOverride ?? (this.deps.config.layout.wrap || this.compact);
+  }
+
+  /** Whether the layers pane can sit beside the main pane; otherwise it opens as an overlay. */
+  get canDock(): boolean {
+    return !this.narrow && !this.compact;
+  }
+
   get sidebarDocked(): boolean {
-    return !this.narrow && !this.sideHidden;
+    return this.canDock && !this.sideHidden;
   }
 
   get sidebarShown(): boolean {
@@ -117,34 +141,41 @@ export class Controller {
   }
 
   get sideWidth(): number {
-    return Math.min(this.deps.config.layout.sidebarWidth, Math.max(20, this.width - 20));
+    const cfg = this.deps.config.layout.sidebarWidth;
+    // As an overlay on a narrow screen the layer list can take the whole width (up to 50 columns).
+    if (!this.sidebarDocked) return Math.min(this.width, Math.max(cfg, 50));
+    return Math.min(cfg, Math.max(20, this.width - 20));
   }
 
-  /** Inner width of the main pane (inside its border). */
+  /** Inner width of the main pane (inside its border; compact layouts have no border). */
   get paneWidth(): number {
+    if (this.compact) return Math.max(10, this.width);
     return Math.max(20, this.width - (this.sidebarDocked ? this.sideWidth : 0) - 2);
   }
 
   get editorHeight(): number {
     if (!this.editor) return 0;
-    const lines = this.editor.text.split('\n').length;
-    return Math.min(8, Math.max(1, lines)) + 2;
+    const inner = Math.max(4, this.width - 3);
+    const lines = (this.editor.text + ' ').split('\n').reduce((n, l) => n + wrap(l, inner).length, 0);
+    const max = this.compact ? Math.max(1, Math.min(4, Math.floor(this.height / 4))) : 8;
+    return Math.min(max, Math.max(1, lines)) + 2;
   }
 
   get bannerHeight(): number {
     return this.session.rec.stale ? 1 : 0;
   }
 
-  /** Inner height of the main pane. */
+  /** Inner height of the main pane: header, banner, footer and editor come off; a border or (compact) a title row. */
   get paneHeight(): number {
-    return Math.max(3, this.height - 1 - this.bannerHeight - 1 - this.editorHeight - 2);
+    const chrome = this.compact ? 1 : 2;
+    return Math.max(1, this.height - 1 - this.bannerHeight - 1 - this.editorHeight - chrome);
   }
 
   resize(w: number, h: number): void {
     if (w === this.width && h === this.height) return;
     this.width = w;
     this.height = h;
-    if (!this.narrow) this.sideOverlay = false;
+    if (this.canDock) this.sideOverlay = false;
     this.keepCursorVisible();
     this.notify();
   }
@@ -160,7 +191,7 @@ export class Controller {
   }
 
   get rows(): BuiltRows {
-    const key = `${this.layerIdx}|${this.layer.id}|${this.paneWidth}|${this.wrap}|${this.dataVersion}`;
+    const key = `${this.layerIdx}|${this.layer.id}|${this.paneWidth}|${this.wrap}|${this.compact}|${this.dataVersion}`;
     if (this.built?.key === key) return this.built.value;
     const s = this.session;
     const value = buildRows({
@@ -172,6 +203,7 @@ export class Controller {
       toggled: this.toggled,
       width: this.paneWidth,
       wrap: this.wrap,
+      compact: this.compact,
     });
     this.built = { key, value };
     return value;
@@ -739,7 +771,12 @@ export class Controller {
   private overlayKey(key: string): void {
     const o = this.overlay!;
     if (o.type === 'help') {
-      this.overlay = null;
+      const page = Math.max(1, this.height - 4);
+      if (key === 'j' || key === 'down') o.scroll++;
+      else if (key === 'k' || key === 'up') o.scroll = Math.max(0, o.scroll - 1);
+      else if (key === 'ctrl+d' || key === 'pagedown' || key === 'space') o.scroll += page;
+      else if (key === 'ctrl+u' || key === 'pageup') o.scroll = Math.max(0, o.scroll - page);
+      else this.overlay = null;
       return this.notify();
     }
     if (o.type === 'picker') {
@@ -799,7 +836,7 @@ export class Controller {
       case 'focus':
         if (!this.sidebarShown) this.sideOverlay = true;
         this.focus = this.focus === 'main' ? 'layers' : 'main';
-        if (this.focus === 'main' && this.narrow) this.sideOverlay = false;
+        if (this.focus === 'main' && !this.canDock) this.sideOverlay = false;
         this.sideSel = this.layerIdx;
         return this.notify();
       case 'reviewed':
@@ -828,11 +865,11 @@ export class Controller {
         void this.reload();
         return;
       case 'wrap':
-        this.wrap = !this.wrap;
+        this.wrapOverride = !this.wrap;
         this.clampCursor();
         return this.say(this.wrap ? 'line wrap on' : 'line wrap off');
       case 'sidebar':
-        if (this.narrow) {
+        if (!this.canDock) {
           this.sideOverlay = !this.sideOverlay;
           this.focus = this.sideOverlay ? 'layers' : 'main';
         } else {
@@ -843,7 +880,7 @@ export class Controller {
         this.keepCursorVisible();
         return this.notify();
       case 'help':
-        this.overlay = { type: 'help' };
+        this.overlay = { type: 'help', scroll: 0 };
         return this.notify();
       case 'quit':
         return this.requestQuit();

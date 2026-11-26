@@ -25,6 +25,8 @@ export type BuildInput = {
   toggled: Set<string>;
   width: number;
   wrap: boolean;
+  /** Phone-sized layout: one line-number column, tighter indents, shortened paths. */
+  compact?: boolean;
 };
 
 export type BuiltRows = { rows: Row[]; numWidth: number; codeWidth: number };
@@ -47,9 +49,28 @@ export function isCollapsed(hunkId: string, reviewed: Record<string, string>, to
   return Boolean(reviewed[hunkId]) !== toggled.has(hunkId);
 }
 
-/** Gutter: cursor column, old number, new number, marker. */
-export function gutterWidth(numWidth: number): number {
-  return 1 + numWidth + 1 + numWidth + 1 + 2;
+/**
+ * Gutter: cursor column, old number, new number, marker and a space.
+ * Compact: cursor column, one number (new side, or old for deleted lines), marker and a space.
+ */
+export function gutterWidth(numWidth: number, compact = false): number {
+  return compact ? 1 + numWidth + 2 : 1 + numWidth + 1 + numWidth + 1 + 2;
+}
+
+/** Shorten a path from the left so it fits: "…/session/store.ts". */
+export function shortenPath(path: string, max: number): string {
+  if (width(path) <= max) return path;
+  if (max <= 1) return '…';
+  const parts = path.split('/');
+  let out = parts[parts.length - 1]!;
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const next = parts[i] + '/' + out;
+    if (width(next) + 2 > max) break;
+    out = next;
+  }
+  out = '…/' + out;
+  if (width(out) <= max) return out;
+  return '…' + [...out].slice(-(max - 1)).join('');
 }
 
 function lineAnchorMatches(c: Comment, h: Hunk, idx: number): boolean {
@@ -68,7 +89,14 @@ function kindRole(c: Comment): Role {
 }
 
 /** Rows for one comment thread (root plus replies), drawn as boxes. */
-export function threadRows(root: Comment, replies: Comment[], indent: number, paneWidth: number, keyPrefix: string): Row[] {
+export function threadRows(
+  root: Comment,
+  replies: Comment[],
+  indent: number,
+  paneWidth: number,
+  keyPrefix: string,
+  replyIndent = 2,
+): Row[] {
   const rows: Row[] = [];
   if (root.status === 'resolved') {
     const first = flattenMarkdown(root.body).split('\n')[0] ?? '';
@@ -83,11 +111,12 @@ export function threadRows(root: Comment, replies: Comment[], indent: number, pa
   }
   const box = (c: Comment, extra: number) => {
     const ind = indent + extra;
-    const boxW = Math.max(20, Math.min(72, paneWidth - ind - 1));
+    const boxW = Math.max(Math.min(12, paneWidth - ind), Math.min(72, paneWidth - ind - 1));
     const inner = boxW - 4;
     const role = kindRole(c);
     const status = c.kind === 'review' ? (c.postedAt ? 'posted' : c.status) : c.status;
-    const label = ` ${c.kind} · ${authorLabel(c)} · ${status} `;
+    const full = ` ${c.kind} · ${authorLabel(c)} · ${status} `;
+    const label = width(full) <= boxW - 3 ? full : ` ${c.kind} · ${status} `.slice(0, Math.max(0, boxW - 3));
     const top = '┌' + label + '─'.repeat(Math.max(0, boxW - 2 - width(label))) + '┐';
     rows.push({ kind: 'text', key: `${keyPrefix}:${c.id}:t`, hunkId: c.hunkId, commentId: c.id, segs: [{ text: ' '.repeat(ind) }, { text: top, role }] });
     const body = wrap(flattenMarkdown(c.body) || ' ', inner);
@@ -114,7 +143,7 @@ export function threadRows(root: Comment, replies: Comment[], indent: number, pa
     });
   };
   box(root, 0);
-  for (const r of replies) box(r, 2);
+  for (const r of replies) box(r, replyIndent);
   return rows;
 }
 
@@ -127,8 +156,9 @@ export function buildRows(input: BuildInput): BuiltRows {
 
   let maxNo = 1;
   for (const h of layerHunks) maxNo = Math.max(maxNo, h.oldStart + h.oldLines, h.newStart + h.newLines);
-  const numWidth = Math.max(3, String(maxNo).length);
-  const gw = gutterWidth(numWidth);
+  const compact = input.compact ?? false;
+  const numWidth = Math.max(compact ? 2 : 3, String(maxNo).length);
+  const gw = gutterWidth(numWidth, compact);
   const codeWidth = Math.max(10, paneW - gw);
 
   // ---- layer card ----
@@ -144,7 +174,9 @@ export function buildRows(input: BuildInput): BuiltRows {
       ...(layer.group ? [{ text: `  (${layer.group})`, role: 'muted' as Role }] : []),
     ]);
     const why = flattenMarkdown(layer.why);
-    if (why) {
+    if (why && compact) {
+      wrap(why, paneW - 2).forEach((l, i) => cardText(`card:why${i}`, [{ text: ' ' + l }]));
+    } else if (why) {
       const lines = wrap(why, paneW - 7);
       lines.forEach((l, i) =>
         cardText(`card:why${i}`, i === 0 ? [{ text: ' Why: ', role: 'muted' }, { text: l }] : [{ text: '      ' + l }]),
@@ -157,7 +189,10 @@ export function buildRows(input: BuildInput): BuiltRows {
           return dl ? `${d} ${dl.title}` : d;
         })
         .join(', ');
-      cardText('card:deps', [{ text: ' Depends on: ', role: 'muted' }, { text: deps }]);
+      const label = ' Depends on: ';
+      wrap(deps, paneW - label.length - 1).forEach((l, i) =>
+        cardText(`card:deps${i}`, [{ text: i === 0 ? label : ' '.repeat(label.length), role: 'muted' }, { text: l }]),
+      );
     }
   }
   rows.push({ kind: 'text', key: 'card:blank', segs: [{ text: '' }], layerCard: true });
@@ -181,11 +216,14 @@ export function buildRows(input: BuildInput): BuiltRows {
     fileTotals.set(h.path, t);
   }
   let prevPath: string | null = null;
-  const commentIndent = gw;
+  const commentIndent = compact ? 2 : gw;
   for (const h of layerHunks) {
     const done = Boolean(reviewed[h.id]);
     if (isCollapsed(h.id, reviewed, toggled)) {
       const n = h.lines.length;
+      const header = compact ? h.header.replace(/^(@@[^@]*@@).*$/, '$1') : h.header;
+      const tail = compact ? ` (${n})` : ` (collapsed, ${n} line${n === 1 ? '' : 's'})`;
+      const room = paneW - 3 - width(` ${header}`) - width(tail);
       rows.push({
         kind: 'collapsed',
         key: `h:${h.id}`,
@@ -193,9 +231,9 @@ export function buildRows(input: BuildInput): BuiltRows {
         segs: [
           { text: ' ' },
           { text: done ? '✓ ' : '▸ ', role: done ? 'riskLow' : 'muted' },
-          { text: h.path, role: 'file' },
-          { text: ` ${h.header}`, role: 'hunk' },
-          { text: ` (collapsed, ${n} line${n === 1 ? '' : 's'})`, role: 'muted' },
+          { text: compact ? shortenPath(h.path, Math.max(8, room)) : h.path, role: 'file' },
+          { text: ` ${header}`, role: 'hunk' },
+          { text: tail, role: 'muted' },
         ],
       });
       prevPath = null; // show the file header again after a collapsed hunk
@@ -203,7 +241,9 @@ export function buildRows(input: BuildInput): BuiltRows {
     }
     if (h.path !== prevPath) {
       const t = fileTotals.get(h.path)!;
-      const name = h.oldPath ? `${h.oldPath} → ${h.path}` : h.path;
+      const stats = `  ${h.fileStatus}  +${t.added} −${t.removed}`;
+      const full = h.oldPath ? `${h.oldPath} → ${h.path}` : h.path;
+      const name = compact ? shortenPath(full, Math.max(8, paneW - 2 - width(stats))) : full;
       rows.push({
         kind: 'text',
         key: `f:${h.id}`,
@@ -251,6 +291,16 @@ export function buildRows(input: BuildInput): BuiltRows {
             end += ch.length;
           }
           if (end === start) end = start + 1;
+          // Prefer breaking after a space or punctuation in the last half of the row, so words stay whole.
+          if (end < text.length) {
+            const min = start + Math.floor((end - start) / 2);
+            for (let k = end; k > min; k--) {
+              if (/[\s,;(){}\[\]<>=+\-*/|&:]/.test(text[k - 1]!)) {
+                end = k;
+                break;
+              }
+            }
+          }
           rows.push({ kind: 'line', key: `l:${h.id}:${idx}:${part}`, hunkId: h.id, lineIndex: idx, start, end, cont: part > 0 });
           start = end;
           part++;

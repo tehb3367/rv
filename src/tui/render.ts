@@ -2,7 +2,7 @@ import type { LineTokens } from '../core/highlight.ts';
 import type { Palette } from '../core/theme.ts';
 import type { DiffLine } from '../core/types.ts';
 import type { Range } from '../core/worddiff.ts';
-import type { Role, Seg } from './rows.ts';
+import { gutterWidth, type Role, type Seg } from './rows.ts';
 import { TAB_WIDTH, charWidth, width } from './text.ts';
 
 export type Cell = { text: string; fg?: string; bg?: string; bold?: boolean };
@@ -132,6 +132,7 @@ export type LineRenderInput = {
   wrap: boolean;
   cursor: boolean;
   palette: Palette;
+  compact?: boolean;
 };
 
 export function lineBg(kind: DiffLine['kind'], p: Palette): string | undefined {
@@ -145,10 +146,11 @@ export function renderLine(i: LineRenderInput): Cell[] {
   const cells: Cell[] = [];
   cells.push({ text: i.cursor ? '▌' : ' ', fg: p.focus, bg });
   const num = (n: number | undefined) => (n === undefined || i.cont ? ' '.repeat(i.numWidth) : String(n).padStart(i.numWidth));
-  cells.push({ text: `${num(i.line.oldNo)} ${num(i.line.newNo)} `, fg: p.gutter, bg });
+  if (i.compact) cells.push({ text: num(i.line.kind === 'del' ? i.line.oldNo : i.line.newNo), fg: p.gutter, bg });
+  else cells.push({ text: `${num(i.line.oldNo)} ${num(i.line.newNo)} `, fg: p.gutter, bg });
   const marker = i.cont ? ' ' : i.line.kind === 'add' ? '+' : i.line.kind === 'del' ? '-' : ' ';
   cells.push({ text: marker + ' ', fg: i.line.kind === 'add' ? p.riskLow : i.line.kind === 'del' ? p.riskHigh : p.gutter, bg });
-  const codeW = i.paneWidth - (1 + i.numWidth * 2 + 2 + 2);
+  const codeW = i.paneWidth - gutterWidth(i.numWidth, i.compact);
   const s = i.styled;
   let used = 0;
   let overflow = false;

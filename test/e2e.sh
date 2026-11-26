@@ -199,4 +199,39 @@ wait_for "$TMUX_A" "3/9 hunks"
 keys "$TMUX_A" q
 ok "plan, reviewed marks and comments restored"
 
+# ---- 11. phone-sized terminal ----
+say "11. phone-sized terminal (45x20)"
+TMUX_P="rv-e2e-p-$$"
+tmux kill-session -t "$TMUX_A" 2>/dev/null || true
+tmux new-session -d -s "$TMUX_P" -x 45 -y 20 -c "$REPO_A" \
+  "env PATH='$PATH' RV_HOME='$RV_HOME' XDG_CACHE_HOME='$XDG_CACHE_HOME' XDG_CONFIG_HOME='$XDG_CONFIG_HOME' COLORTERM=truecolor rv diff main..feature 2>'$WORK/rv-p.err'; sleep 600"
+TMUX_A="$TMUX_P" # so failures dump this pane
+wait_live "$REPO_A"
+wait_for "$TMUX_P" "L1 Cached API"
+capture "$TMUX_P" | grep -q "┌─ Layers" && die "the layers pane should not be docked at 45 columns"
+capture "$TMUX_P" | head -1 | grep -qF "3/9 · idle" || die "compact header missing"
+capture "$TMUX_P" | tail -1 | grep -qF "b layers" || die "compact footer missing"
+keys "$TMUX_P" n n n j
+wait_for "$TMUX_P" "33  export const Row32"
+capture "$TMUX_P" | grep -qF "className=\"row\">{'item 32'}</div>;" || die "long lines should wrap whole words"
+python3 - "$(capture "$TMUX_P")" <<'PY' || die "a row is wider than 45 columns"
+import sys, unicodedata
+for line in sys.argv[1].split("\n"):
+    w = sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in line)
+    assert w <= 45, (w, line)
+PY
+ok "compact layout: one number column, wrapped code, nothing wider than the screen"
+keys "$TMUX_P" b
+wait_for "$TMUX_P" "L2 Report formatting and gree"
+keys "$TMUX_P" j Enter
+wait_for "$TMUX_P" "L2 Report formatting and greeting"
+ok "b opens the layers as a full-width overlay and Enter picks one"
+tmux resize-window -t "$TMUX_P" -x 20 -y 6
+wait_for "$TMUX_P" "rv needs at least"
+tmux resize-window -t "$TMUX_P" -x 45 -y 20
+wait_for "$TMUX_P" "L2 Report"
+ok "too-small screens say so, and recover on resize"
+keys "$TMUX_P" q
+tmux kill-session -t "$TMUX_P" 2>/dev/null || true
+
 printf '\n\033[32mall %d e2e checks passed\033[0m\n' "$PASS"

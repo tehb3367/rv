@@ -102,3 +102,28 @@ describe('row model', () => {
     expect(performance.now() - t0).toBeLessThan(200);
   });
 });
+
+describe('compact rows', () => {
+  test('one number column, comment indent 2, paths shortened from the left', async () => {
+    const { gutterWidth, shortenPath } = await import('../../src/tui/rows.ts');
+    expect(gutterWidth(3, true)).toBe(6);
+    expect(gutterWidth(3, false)).toBe(11);
+    expect(shortenPath('src/session/store/deep/file.ts', 18)).toBe('…/deep/file.ts');
+    expect(shortenPath('short.ts', 20)).toBe('short.ts');
+    const h = hunks[0]!;
+    const c: Comment = { id: 'c_1', hunkId: h.id, line: { side: 'new', number: 2 }, author: 'human', kind: 'ask', body: 'Q?', status: 'pending', createdAt: 'x' };
+    const { rows, numWidth } = buildRows({ ...base, width: 30, compact: true, comments: [c] });
+    expect(numWidth).toBe(2);
+    const box = rows.find((r) => r.kind === 'text' && r.commentId === 'c_1')!;
+    expect(box.kind === 'text' && box.segs[0]!.text).toBe('  ');
+    for (const r of rows) if (r.kind === 'text') expect(r.segs.reduce((n, s) => n + Bun.stringWidth(s.text), 0)).toBeLessThanOrEqual(30);
+  });
+
+  test('wrapping prefers word boundaries', () => {
+    const { rows } = buildRows({ ...base, width: 30, wrap: true, compact: true });
+    const parts = rows.filter((r) => r.kind === 'line' && r.hunkId === hunks[2]!.id && hunks[2]!.lines[r.lineIndex]!.kind === 'add');
+    expect(parts.length).toBeGreaterThan(1);
+    const text = expandTabs(hunks[2]!.lines[parts[0]!.kind === 'line' ? parts[0]!.lineIndex : 0]!.text);
+    for (const p of parts.slice(0, -1)) if (p.kind === 'line') expect(/[\s,;(){}\[\]<>=+\-*/|&:]/.test(text[p.end - 1]!)).toBe(true);
+  });
+});

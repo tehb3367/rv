@@ -44,6 +44,7 @@ function rowCells(ctl: Controller, row: Row, cursor: boolean): Cell[] {
       wrap: ctl.wrap,
       cursor,
       palette: p,
+      compact: ctl.compact,
     });
   }
   return withCursor(fitCells(segCells(row.segs, p, p.bg), w, p.bg), cursor, p.focus);
@@ -56,19 +57,27 @@ function Header({ ctl }: { ctl: Controller }) {
   const range = `${s.src.baseLabel}..${s.src.headLabel}`;
   const pr = s.src.prNumber !== undefined ? ` · PR #${s.src.prNumber}` : '';
   const prog = ctl.progress;
-  const right = `${prog.reviewed}/${prog.total} hunks · agent ${s.agentWaiting ? 'waiting' : 'idle'} `;
-  const leftRoom = Math.max(10, ctl.width - width(right) - 1);
-  const left = truncate(` rv · ${title} · ${range}${pr}`, leftRoom);
+  const compact = ctl.compact;
+  const count = compact ? `${prog.reviewed}/${prog.total} · ` : `${prog.reviewed}/${prog.total} hunks · `;
+  const agent = compact ? (s.agentWaiting ? 'waiting ' : 'idle ') : `agent ${s.agentWaiting ? 'waiting' : 'idle'} `;
+  const right = count + agent;
+  const leftRoom = Math.max(4, ctl.width - width(right) - 1);
+  const full = compact ? ` rv · ${title}${pr}` : ` rv · ${title} · ${range}${pr}`;
+  const left = truncate(full, leftRoom);
   const gap = Math.max(1, ctl.width - width(left) - width(right));
   return (
     <Line
-      cells={[
-        { text: ' rv', fg: p.focus, bg: p.bg, bold: true },
-        { text: left.slice(3), fg: p.fg, bg: p.bg },
-        { text: ' '.repeat(gap), bg: p.bg },
-        { text: `${prog.reviewed}/${prog.total} hunks · `, fg: p.muted, bg: p.bg },
-        { text: `agent ${s.agentWaiting ? 'waiting' : 'idle'} `, fg: s.agentWaiting ? p.askBorder : p.muted, bg: p.bg, bold: s.agentWaiting },
-      ]}
+      cells={fitCells(
+        [
+          { text: left.slice(0, 3), fg: p.focus, bg: p.bg, bold: true },
+          { text: left.slice(3), fg: p.fg, bg: p.bg },
+          { text: ' '.repeat(gap), bg: p.bg },
+          { text: count, fg: p.muted, bg: p.bg },
+          { text: agent, fg: s.agentWaiting ? p.askBorder : p.muted, bg: p.bg, bold: s.agentWaiting },
+        ],
+        ctl.width,
+        p.bg,
+      )}
     />
   );
 }
@@ -76,7 +85,9 @@ function Header({ ctl }: { ctl: Controller }) {
 function Banner({ ctl }: { ctl: Controller }) {
   const p = ctl.palette;
   const n = ctl.session.rec.newHunks.length;
-  const text = ` ⚠ plan is stale, ${n} new hunk${n === 1 ? '' : 's'} — they are in the Unplaced layer; ask the agent to re-plan`;
+  const text = ctl.compact
+    ? ` ⚠ plan stale: ${n} new hunk${n === 1 ? '' : 's'} in Unplaced`
+    : ` ⚠ plan is stale, ${n} new hunk${n === 1 ? '' : 's'} — they are in the Unplaced layer; ask the agent to re-plan`;
   return <Line cells={[{ text: fit(text, ctl.width), fg: p.riskMed, bg: p.bg, bold: true }]} />;
 }
 
@@ -87,7 +98,9 @@ function Footer({ ctl }: { ctl: Controller }) {
   }
   const k = ctl.deps.config.keys;
   const show = (a: KeyAction) => (k[a] === 'space' ? 'space' : k[a]);
-  const hint = ` ${show('reviewed')} reviewed · ${show('comment')} comment · ${show('ask')} ask agent · ${show('send')} send (${ctl.draftAskCount}) · ${show('nextLayer')}/${show('prevLayer')} layer · ${show('nextHunk')}/${show('prevHunk')} hunk · ${show('help')} help`;
+  const hint = ctl.compact
+    ? ` ${show('reviewed') === 'space' ? 'spc' : show('reviewed')} ✓ · ${show('comment')} · ${show('ask')} ask · ${show('send')}(${ctl.draftAskCount}) · ${show('sidebar')} layers · ${show('help')} help`
+    : ` ${show('reviewed')} reviewed · ${show('comment')} comment · ${show('ask')} ask agent · ${show('send')} send (${ctl.draftAskCount}) · ${show('nextLayer')}/${show('prevLayer')} layer · ${show('nextHunk')}/${show('prevHunk')} hunk · ${show('help')} help`;
   return <Line cells={[{ text: fit(hint, ctl.width), fg: p.muted, bg: p.bg }]} />;
 }
 
@@ -170,6 +183,33 @@ function MainPane({ ctl }: { ctl: Controller }) {
   const title =
     l.id === UNSTACKED_ID ? ' Unstacked ' : ` ${l.id === 'Unplaced' ? '' : l.id + ' · '}${truncate(l.title, Math.max(10, ctl.paneWidth - 20))}  risk: ${l.risk} `;
   const filler = Math.max(0, h - visible.length);
+  if (ctl.compact) {
+    const prog = ctl.layerProgress(l);
+    const tail = l.id === UNSTACKED_ID ? ` ${prog.done}/${prog.total} ` : ` ${l.risk} ${prog.done}/${prog.total} `;
+    const head = l.id === UNSTACKED_ID ? ' Unstacked' : ` ${l.id === 'Unplaced' ? '' : l.id + ' '}${l.title}`;
+    const bar = p.sidebarBg ?? p.bg;
+    return (
+      <box flexGrow={1} backgroundColor={p.bg} flexDirection="column"
+        onMouseScroll={(e) => e.scroll && ctl.wheel('main', e.scroll.direction === 'down' ? 'down' : 'up')}>
+        <Line
+          cells={fitCells(
+            [
+              { text: fit(head, Math.max(1, ctl.paneWidth - width(tail))), fg: ctl.focus === 'main' ? p.focus : p.fg, bg: bar, bold: true },
+              { text: tail, fg: roleColor(riskRole(l.risk), p), bg: bar },
+            ],
+            ctl.paneWidth,
+            bar,
+          )}
+        />
+        {visible.map((r, i) => (
+          <Line key={r.key} cells={rowCells(ctl, r, ctl.scroll + i === ctl.cursor && ctl.focus === 'main')} />
+        ))}
+        {Array.from({ length: filler }, (_, i) => (
+          <Line key={`pad${i}`} cells={[{ text: ' '.repeat(ctl.paneWidth), bg: p.bg }]} />
+        ))}
+      </box>
+    );
+  }
   return (
     <box
       flexGrow={1}
@@ -195,7 +235,9 @@ function EditorBox({ ctl }: { ctl: Controller }) {
   const ed = ctl.editor!;
   const kind = ed.mode === 'edit' ? 'edit comment' : ed.mode === 'ask' ? 'ask agent' : 'review comment';
   const anchor = ed.line ? ` · line ${ed.line.side}:${ed.line.number}` : ' · hunk';
-  const title = ` ${kind}${anchor} · Enter save · Ctrl-j newline · Ctrl-e $EDITOR · Esc cancel `;
+  const title = ctl.compact
+    ? ` ${ed.mode === 'ask' ? 'ask' : ed.mode === 'edit' ? 'edit' : 'comment'}${ed.line ? ` ${ed.line.side}:${ed.line.number}` : ''} · ⏎ save · Esc `
+    : ` ${kind}${anchor} · Enter save · Ctrl-j newline · Ctrl-e $EDITOR · Esc cancel `;
   const inner = ctl.width - 2;
   const before = ed.text.slice(0, ed.pos);
   const at = ed.text.slice(ed.pos, ed.pos + 1);
@@ -258,10 +300,13 @@ const HELP: [KeyAction | string, string][] = [
   ['quit', 'quit'],
 ];
 
-function CenterBox({ ctl, title, lines, color }: { ctl: Controller; title: string; lines: Cell[][]; color: string }) {
+function CenterBox({ ctl, title, lines, color, scroll = 0 }: { ctl: Controller; title: string; lines: Cell[][]; color: string; scroll?: number }) {
   const p = ctl.palette;
-  const w = Math.min(ctl.width - 4, Math.max(40, ...lines.map((l) => l.reduce((a, c) => a + width(c.text), 0) + 4)));
-  const h = Math.min(ctl.height - 2, lines.length + 2);
+  const natural = Math.max(40, ...lines.map((l) => l.reduce((a, c) => a + width(c.text), 0) + 4));
+  const w = ctl.compact ? ctl.width : Math.min(ctl.width - 4, natural);
+  const h = Math.min(ctl.compact ? ctl.height : ctl.height - 2, lines.length + 2);
+  const maxScroll = Math.max(0, lines.length - (h - 2));
+  const from = Math.min(scroll, maxScroll);
   return (
     <box
       position="absolute"
@@ -276,7 +321,7 @@ function CenterBox({ ctl, title, lines, color }: { ctl: Controller; title: strin
       backgroundColor={p.sidebarBg ?? p.bg}
       flexDirection="column"
     >
-      {lines.slice(0, h - 2).map((l, i) => (
+      {lines.slice(from, from + h - 2).map((l, i) => (
         <Line key={i} cells={fitCells(l, w - 2, p.sidebarBg ?? p.bg)} />
       ))}
     </box>
@@ -290,12 +335,20 @@ function Overlay({ ctl }: { ctl: Controller }) {
   const bg = p.sidebarBg ?? p.bg;
   if (o.type === 'help') {
     const keys = ctl.deps.config.keys as Record<string, string>;
-    const lines = HELP.map(([a, d]) => [
-      { text: ` ${(keys[a] ?? a).padEnd(8)}`, fg: p.focus, bg, bold: true },
-      { text: d, fg: p.fg, bg },
-    ]);
-    lines.push([{ text: ' mouse: wheel scrolls, click a layer to open it · any key closes', fg: p.muted, bg }]);
-    return <CenterBox ctl={ctl} title=" Help " lines={lines} color={p.focus} />;
+    const keyW = Math.max(...HELP.map(([a]) => width(keys[a] ?? a))) + 2;
+    const descW = Math.max(8, (ctl.compact ? ctl.width : Math.min(ctl.width - 4, 80)) - 2 - keyW);
+    const lines: Cell[][] = [];
+    for (const [a, d] of HELP) {
+      wrap(d, descW).forEach((part, i) =>
+        lines.push([
+          { text: i === 0 ? ` ${(keys[a] ?? a).padEnd(keyW - 1)}` : ' '.repeat(keyW), fg: p.focus, bg, bold: true },
+          { text: part, fg: p.fg, bg },
+        ]),
+      );
+    }
+    for (const part of wrap('mouse: wheel scrolls, click a layer to open it. j/k scroll this help, any other key closes it.', descW + keyW - 1))
+      lines.push([{ text: ' ' + part, fg: p.muted, bg }]);
+    return <CenterBox ctl={ctl} title=" Help " lines={lines} color={p.focus} scroll={o.scroll} />;
   }
   if (o.type === 'picker') {
     const lines = SUBMIT_CHOICES.map((c, i) => [
@@ -305,7 +358,9 @@ function Overlay({ ctl }: { ctl: Controller }) {
     lines.push([{ text: ' j/k choose · Enter confirm · Esc cancel', fg: p.muted, bg }]);
     return <CenterBox ctl={ctl} title=" Submit review " lines={lines} color={p.focus} />;
   }
-  return <CenterBox ctl={ctl} title=" Confirm " lines={[[{ text: ' ' + o.message, fg: p.fg, bg }]]} color={p.riskMed} />;
+  const room = Math.max(10, (ctl.compact ? ctl.width : Math.min(ctl.width - 4, 80)) - 4);
+  const lines = wrap(o.message, room).map((part) => [{ text: ' ' + part, fg: p.fg, bg }]);
+  return <CenterBox ctl={ctl} title=" Confirm " lines={lines} color={p.riskMed} />;
 }
 
 export function App({ ctl }: { ctl: Controller }) {
@@ -317,6 +372,16 @@ export function App({ ctl }: { ctl: Controller }) {
   useKeyboard((k) => ctl.handleKey(k));
   usePaste((e) => ctl.editor && ctl.insertText(decodePasteBytes(e.bytes)));
   const p = ctl.palette;
+  if (ctl.tooSmall) {
+    const msg = wrap(`rv needs at least 24×8, this terminal is ${ctl.width}×${ctl.height}. q quits.`, Math.max(1, ctl.width - 1));
+    return (
+      <box width={ctl.width} height={ctl.height} flexDirection="column" backgroundColor={p.bg}>
+        {msg.slice(0, ctl.height).map((m, i) => (
+          <Line key={i} cells={[{ text: fit(' ' + m, ctl.width), fg: p.riskMed, bg: p.bg }]} />
+        ))}
+      </box>
+    );
+  }
   return (
     <box width={ctl.width} height={ctl.height} flexDirection="column" backgroundColor={p.bg}>
       <Header ctl={ctl} />
