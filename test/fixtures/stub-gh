@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stub `gh` for tests. Records every call to $RV_STUB_GH_LOG (one JSON line per call, stdin included).
+set -euo pipefail
+log="${RV_STUB_GH_LOG:-/dev/null}"
+stdin=""
+if [[ "${1:-}" == "api" ]]; then stdin="$(cat)"; fi
+python3 - "$log" "$stdin" "$@" <<'PY'
+import json, sys
+log, stdin, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+with open(log, "a") as f:
+    f.write(json.dumps({"args": args, "stdin": json.loads(stdin) if stdin else None}) + "\n")
+PY
+case "${1:-} ${2:-}" in
+  "auth status") echo "Logged in to github.com as stub"; exit 0 ;;
+  "pr view") cat "${RV_STUB_GH_PR_JSON:?}"; exit 0 ;;
+  "api "*) echo '{"id": 1, "html_url": "https://github.com/acme/widgets/pull/7#pullrequestreview-1"}'; exit 0 ;;
+esac
+echo "stub gh: unsupported: $*" >&2
+exit 1
