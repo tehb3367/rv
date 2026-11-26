@@ -1,4 +1,5 @@
 import type { Comment, Hunk, Plan } from './types.ts';
+import { UNSTACKED_ID } from './types.ts';
 
 export type GhReviewComment = { path: string; line: number; side: 'LEFT' | 'RIGHT'; body: string };
 export type GhReviewPayload = {
@@ -87,9 +88,11 @@ export function buildReviewPayload(i: PayloadInput): BuiltPayload {
   const done = i.hunks.filter((h) => i.reviewed[h.id]).length;
   const lines = [`**${i.plan.title}**`, '', `Reviewed with rv: ${done}/${total} hunks.`, ''];
   for (const l of i.plan.layers) {
+    if (l.id === UNSTACKED_ID) continue;
     const d = l.hunks.filter((id) => i.reviewed[id]).length;
     lines.push(`- ${l.id} ${l.title} (risk: ${l.risk}): ${d}/${l.hunks.length} reviewed${d === l.hunks.length ? ' ✓' : ''}`);
   }
+  while (lines[lines.length - 1] === '') lines.pop();
   if (outside.length) lines.push('', '### Comments outside the diff', '', ...outside);
   const payload: GhReviewPayload = {
     commit_id: i.commitId,

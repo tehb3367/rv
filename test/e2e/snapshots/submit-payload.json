@@ -1,0 +1,23 @@
+{
+  "args": [
+    "api",
+    "repos/acme/widgets/pulls/7/reviews",
+    "--method",
+    "POST",
+    "--input",
+    "-"
+  ],
+  "payload": {
+    "body": "**PR #7**\n\nReviewed with rv: 0/9 hunks.",
+    "comments": [
+      {
+        "body": "Consider a cache key per handler.",
+        "line": 3,
+        "path": "cmd/main.go",
+        "side": "RIGHT"
+      }
+    ],
+    "commit_id": "29e15f8903c3cc1412d57e0af1d6bfaef1c47e99",
+    "event": "COMMENT"
+  }
+}
