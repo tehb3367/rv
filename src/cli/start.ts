@@ -25,6 +25,7 @@ export type StartContext = {
   server: RunningServer;
   config: Config;
   watch: boolean;
+  submit?: Submitter;
   shutdown: (code?: number) => Promise<never>;
 };
 
@@ -67,7 +68,8 @@ async function launch(
     transparent: p.flags.has('transparent') ? flagBool(p, 'transparent') : undefined,
   });
   const session = await Session.open(src, resolver, { autoSend: config.asks.autoSend });
-  const server = startServer(session, { submit: makeSubmitter?.(session) });
+  const submit = makeSubmitter?.(session);
+  const server = startServer(session, { submit });
   const watch = flagBool(p, 'watch');
   const stopWatch = watch ? startWatch(session, resolver) : () => {};
   session.bus.on((e) => {
@@ -90,7 +92,7 @@ async function launch(
   process.on('SIGINT', () => void shutdown(0));
   process.on('SIGTERM', () => void shutdown(0));
   process.on('SIGHUP', () => void shutdown(0));
-  const ctx: StartContext = { session, server, config, watch, shutdown };
+  const ctx: StartContext = { session, server, config, watch, submit, shutdown };
   if (!ui || flagBool(p, 'headless')) {
     if (flagBool(p, 'json')) process.stdout.write(JSON.stringify({ id: server.entry.id, port: server.entry.port }) + '\n');
     else process.stderr.write(`rv session ${server.entry.id} on ${server.url} (headless, Ctrl-C to stop)\n`);
