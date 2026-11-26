@@ -1,0 +1,26 @@
+{
+  "name": "rv",
+  "version": "1.0.0",
+  "description": "Terminal tool for reviewing large PRs as agent-planned layers",
+  "type": "module",
+  "bin": { "rv": "src/index.ts" },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "e2e": "bash test/e2e.sh",
+    "build": "bun run scripts/build.ts"
+  },
+  "dependencies": {
+    "@opentui/core": "0.9.9",
+    "@opentui/react": "0.9.9",
+    "diff": "9.0.0",
+    "react": "19.3.1",
+    "shiki": "4.6.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19",
+    "typescript": "^5"
+  }
+}
