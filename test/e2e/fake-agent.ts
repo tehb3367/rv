@@ -48,4 +48,14 @@ if (cmd === 'plan') {
     const r = await rv(['reply', '--to', ask.id, '--body', 'Because handler3 is the hot path.', '--json']);
     if (r.code !== 0) fail(`reply failed: ${r.err}`);
   }
+} else if (cmd === 'explain-reply') {
+  const w = await rv(['wait', '--timeout', '60', '--json']);
+  if (w.code !== 0 || w.json.event !== 'asks') fail(`expected asks, got ${w.out}${w.err}`);
+  if (w.json.learning !== true) fail('rv wait should report learning mode');
+  for (const ask of w.json.asks) {
+    if (!ask.learning) fail('the x ask should be marked learning');
+    console.log(`explain: ${ask.body.split('\n')[0]}`);
+    const r = await rv(['reply', '--to', ask.id, '--body', 'This line brings in tools from another file, like borrowing a book.', '--json']);
+    if (r.code !== 0) fail(`reply failed: ${r.err}`);
+  }
 } else fail(`unknown command ${cmd}`);

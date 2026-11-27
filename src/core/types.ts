@@ -34,6 +34,8 @@ export type Layer = {
   risk: Risk;
   dependsOn?: string[];
   hunks: string[];
+  /** Learning mode: a longer, plain-language explanation for people new to code (at most 2000 characters). */
+  explain?: string;
 };
 
 export type Plan = { version: 1; title: string; summary?: string; layers: Layer[] };
@@ -55,6 +57,8 @@ export type Comment = {
   deliveredAt?: string;
   /** Set once a review comment has been posted to GitHub. */
   postedAt?: string;
+  /** Set on asks made in learning mode: answer for someone new to code. */
+  learning?: boolean;
 };
 
 export type SavedState = {

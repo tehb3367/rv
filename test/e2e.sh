@@ -234,4 +234,36 @@ ok "too-small screens say so, and recover on resize"
 keys "$TMUX_P" q
 tmux kill-session -t "$TMUX_P" 2>/dev/null || true
 
+# ---- 12. learning mode ----
+say "12. learning mode explains lines and asks the agent on x"
+TMUX_L="rv-e2e-l-$$"
+tmux new-session -d -s "$TMUX_L" -x 120 -y 40 -c "$REPO_A" \
+  "env PATH='$PATH' RV_HOME='$RV_HOME' XDG_CACHE_HOME='$XDG_CACHE_HOME' XDG_CONFIG_HOME='$XDG_CONFIG_HOME' COLORTERM=truecolor rv diff main..feature --learn 2>'$WORK/rv-l.err'; sleep 600"
+TMUX_A="$TMUX_L"
+wait_live "$REPO_A"
+wait_for "$TMUX_L" "Learn · layer"
+[[ "$(cd "$REPO_A" && rv status --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["learning"])')" == True ]] || die "rv status should report learning mode"
+keys "$TMUX_L" g ']' n j
+wait_for "$TMUX_L" "Learn · unchanged line"
+keys "$TMUX_L" k k
+wait_for "$TMUX_L" "Learn · file"
+wait_for "$TMUX_L" "main.go is a Go file"
+keys "$TMUX_L" j j
+wait_for "$TMUX_L" "import — brings in other packages this file uses."
+ok "the Learn panel explains files, lines and code words"
+(cd "$REPO_A" && bun "$ROOT/test/e2e/fake-agent.ts" explain-reply > "$WORK/explain.out") &
+AGENT=$!
+wait_for "$TMUX_L" "agent waiting"
+keys "$TMUX_L" x
+wait "$AGENT" || die "fake agent explain-reply failed"
+grep -qF "explain: Explain this line to me like I'm new to code" "$WORK/explain.out" || die "x did not reach the agent"
+wait_for "$TMUX_L" "brings in tools from another file"
+ok "x sends a beginner ask straight to the agent and the reply renders inline"
+keys "$TMUX_L" L
+sleep 0.3
+capture "$TMUX_L" | grep -qF "Learn ·" && die "L should turn learning mode off"
+ok "L turns learning mode off"
+keys "$TMUX_L" q
+tmux kill-session -t "$TMUX_L" 2>/dev/null || true
+
 printf '\n\033[32mall %d e2e checks passed\033[0m\n' "$PASS"

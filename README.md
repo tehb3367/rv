@@ -59,6 +59,8 @@ the diff with `rv review`, posts a plan with `rv stack set`, and answers your qu
 | `R` | Reload the diff |
 | `w` | Toggle line wrap (on by default in compact layouts) |
 | `b` | Toggle layers pane |
+| `L` | Learning mode on/off |
+| `x` | Ask the agent to explain the cursor line for a beginner |
 | `H` | Help |
 | `q` | Quit (confirms if asks are unsent or review comments unsubmitted) |
 
@@ -78,6 +80,24 @@ rv adapts to the terminal size, so it works over SSH from a phone (Termius, Blin
 
 Touch scrolling arrives as mouse-wheel events and scrolls the pane under your finger. Without an `Esc` key,
 saving an empty comment also closes the editor.
+
+## Learning mode
+
+For people who don't read code yet but want to learn from reviewing it. Turn it on with
+`rv diff --learn` (or `rv pr <n> --learn`), `learn = true` in the config, or `L` at any time.
+
+- **Learn panel:** a panel under the diff explains whatever the cursor is on, with no agent needed:
+  what green `+` and red `-` lines mean, what a hunk's `@@ -40,6 +40,9 @@` address says, what kind of
+  file this is (TypeScript, Python, Go, a lockfile, an image…), what each risk level means, and the code
+  words on the current line (`import`, `async`, `await`, `=>`, `def`, `func`, JSX tags, comments, strings
+  and more).
+- **`x` explains a line:** sends the agent "Explain this line to me like I'm new to code" for the cursor
+  line in one press (no need to type a question or press `S`).
+- **Beginner plans and answers:** rv tells the agent learning mode is on. Following the skill, it adds a
+  plain-language `explain` to each layer (shown on the layer card as "In plain words") and answers
+  questions from the basics.
+
+Learning mode works in compact layouts too; on a phone the panel takes three or four rows.
 
 ## Install the agent skill
 
@@ -142,6 +162,7 @@ mismatch.
 ```toml
 theme = "synthwave-84"   # any bundled Shiki theme, or a path to a VS Code theme JSON
 transparent = false      # true: leave the terminal background unpainted
+learn = false            # true: start in learning mode (plain-language explanations)
 
 [asks]
 autoSend = false         # true: asks go to the agent as soon as you save them

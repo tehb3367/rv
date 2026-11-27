@@ -3,7 +3,7 @@ import { call } from './client.ts';
 import { COMMON, session } from './common.ts';
 import { emit } from './output.ts';
 
-type StatusData = { layers: { id: string; reviewed: number; total: number }[]; pendingAsks: number };
+type StatusData = { layers: { id: string; reviewed: number; total: number }[]; pendingAsks: number; learning: boolean };
 
 export async function run(argv: string[]): Promise<number> {
   const p = parseArgs(argv, ['json']);
@@ -14,7 +14,7 @@ export async function run(argv: string[]): Promise<number> {
     const rev = data.layers.reduce((a, l) => a + l.reviewed, 0);
     const tot = data.layers.reduce((a, l) => a + l.total, 0);
     return [
-      `${rev}/${tot} hunks reviewed, ${data.pendingAsks} pending asks`,
+      `${rev}/${tot} hunks reviewed, ${data.pendingAsks} pending asks${data.learning ? ', learning mode on' : ''}`,
       ...data.layers.map((l) => `  ${l.id}  ${l.reviewed}/${l.total}`),
     ].join('\n');
   });

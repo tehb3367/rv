@@ -7,7 +7,7 @@ import { DEFAULT_THEME } from './theme.ts';
 export type KeyAction =
   | 'down' | 'up' | 'halfDown' | 'halfUp' | 'top' | 'bottom' | 'nextHunk' | 'prevHunk' | 'nextLayer' | 'prevLayer'
   | 'nextUnreviewed' | 'focus' | 'reviewed' | 'layerReviewed' | 'expand' | 'comment' | 'ask' | 'edit' | 'delete'
-  | 'resolve' | 'send' | 'export' | 'submit' | 'reload' | 'wrap' | 'sidebar' | 'help' | 'quit';
+  | 'resolve' | 'send' | 'export' | 'submit' | 'reload' | 'wrap' | 'sidebar' | 'help' | 'quit' | 'learn' | 'explain';
 
 export const DEFAULT_KEYS: Record<KeyAction, string> = {
   down: 'j',
@@ -38,11 +38,15 @@ export const DEFAULT_KEYS: Record<KeyAction, string> = {
   sidebar: 'b',
   help: 'H',
   quit: 'q',
+  learn: 'L',
+  explain: 'x',
 };
 
 export type Config = {
   theme: string;
   transparent: boolean;
+  /** Learning mode: plain-language explanations for people new to code. */
+  learn: boolean;
   asks: { autoSend: boolean };
   highlight: HighlightConfig;
   layout: { sidebarWidth: number; wrap: boolean };
@@ -53,6 +57,7 @@ export function defaultConfig(): Config {
   return {
     theme: DEFAULT_THEME,
     transparent: false,
+    learn: false,
     asks: { autoSend: false },
     highlight: { ...DEFAULT_HIGHLIGHT, skip: [...DEFAULT_HIGHLIGHT.skip] },
     layout: { sidebarWidth: 34, wrap: false },
@@ -66,6 +71,7 @@ const isObj = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !
 function apply(cfg: Config, raw: Raw, source: string): void {
   if (typeof raw.theme === 'string') cfg.theme = raw.theme;
   if (typeof raw.transparent === 'boolean') cfg.transparent = raw.transparent;
+  if (typeof raw.learn === 'boolean') cfg.learn = raw.learn;
   if (isObj(raw.asks) && typeof raw.asks.autoSend === 'boolean') cfg.asks.autoSend = raw.asks.autoSend;
   if (isObj(raw.highlight)) {
     const h = raw.highlight;
@@ -95,7 +101,7 @@ function readToml(path: string): Raw | null {
   }
 }
 
-export type ConfigFlags = { theme?: string; transparent?: boolean };
+export type ConfigFlags = { theme?: string; transparent?: boolean; learn?: boolean };
 
 /** ~/.config/rv/config.toml, overridden by <repo>/.rv.toml, overridden by flags. */
 export function loadConfig(repoRoot: string | null, flags: ConfigFlags = {}): Config {
@@ -108,5 +114,6 @@ export function loadConfig(repoRoot: string | null, flags: ConfigFlags = {}): Co
   }
   if (flags.theme) cfg.theme = flags.theme;
   if (flags.transparent !== undefined) cfg.transparent = flags.transparent;
+  if (flags.learn !== undefined) cfg.learn = flags.learn;
   return cfg;
 }

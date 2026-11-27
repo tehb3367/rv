@@ -5,7 +5,7 @@ import type { UiRunner, SubmitterFactory } from './start.ts';
 export const HELP = `rv ${VERSION} — review large PRs as agent-planned layers
 
 Open a review (human):
-  rv diff [range] [-- paths]   --staged --worktree --watch --theme <name> --transparent
+  rv diff [range] [-- paths]   --staged --worktree --watch --theme <name> --transparent --learn
   rv pr <number or url>        same flags as rv diff
   rv reload [-- <diff args>]   reload the open session, optionally with a new range
 

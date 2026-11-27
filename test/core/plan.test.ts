@@ -143,3 +143,16 @@ describe('stale plans', () => {
     expect(r.view.layers[0]!.hunks).toEqual(ids);
   });
 });
+
+describe('layer explain (learning mode)', () => {
+  test('optional, kept on accept, limited to 2000 characters', () => {
+    const ok = validatePlan(plan([L('L1', ids, { explain: 'In plain words.' })]), hunks);
+    expect(ok.ok && ok.plan.layers[0]!.explain).toBe('In plain words.');
+    const none = validatePlan(plan([L('L1', ids)]), hunks);
+    expect(none.ok && 'explain' in none.plan.layers[0]!).toBe(false);
+    const long = validatePlan(plan([L('L1', ids, { explain: 'x'.repeat(2001) })]), hunks);
+    expect(!long.ok && long.errors).toContain('L1.explain is 2001 characters, the limit is 2000');
+    const bad = validatePlan(plan([L('L1', ids, { explain: 5 as unknown as string })]), hunks);
+    expect(!bad.ok && bad.errors).toContain('L1.explain must be a string');
+  });
+});

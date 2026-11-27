@@ -7,6 +7,7 @@ export type SessionEvent =
   | { type: 'navigate'; target: NavigateTarget }
   | { type: 'reload' }
   | { type: 'agent'; waiting: boolean }
+  | { type: 'learning'; on: boolean }
   | { type: 'done' };
 
 type Handler = (e: SessionEvent) => void;

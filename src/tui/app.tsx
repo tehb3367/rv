@@ -98,7 +98,11 @@ function Footer({ ctl }: { ctl: Controller }) {
   }
   const k = ctl.deps.config.keys;
   const show = (a: KeyAction) => (k[a] === 'space' ? 'space' : k[a]);
-  const hint = ctl.compact
+  const hint = ctl.learning
+    ? ctl.compact
+      ? ` ${show('explain')} explain · ${show('reviewed') === 'space' ? 'spc' : show('reviewed')} ✓ · ${show('nextLayer')} next · ${show('learn')} off · ${show('help')} help`
+      : ` j/k move · ${show('explain')} ask agent to explain · ${show('reviewed')} reviewed · ${show('ask')} ask · ${show('send')} send (${ctl.draftAskCount}) · ${show('nextLayer')}/${show('prevLayer')} layer · ${show('learn')} learning off · ${show('help')} help`
+    : ctl.compact
     ? ` ${show('reviewed') === 'space' ? 'spc' : show('reviewed')} ✓ · ${show('comment')} · ${show('ask')} ask · ${show('send')}(${ctl.draftAskCount}) · ${show('sidebar')} layers · ${show('help')} help`
     : ` ${show('reviewed')} reviewed · ${show('comment')} comment · ${show('ask')} ask agent · ${show('send')} send (${ctl.draftAskCount}) · ${show('nextLayer')}/${show('prevLayer')} layer · ${show('nextHunk')}/${show('prevHunk')} hunk · ${show('help')} help`;
   return <Line cells={[{ text: fit(hint, ctl.width), fg: p.muted, bg: p.bg }]} />;
@@ -269,6 +273,55 @@ function EditorBox({ ctl }: { ctl: Controller }) {
   );
 }
 
+function LearnPanel({ ctl }: { ctl: Controller }) {
+  const p = ctl.palette;
+  const ex = ctl.explainCursor();
+  const h = ctl.learnHeight;
+  const bg = p.sidebarBg ?? p.bg;
+  const inner = ctl.compact ? ctl.width - 1 : ctl.width - 3;
+  const body = ctl.compact ? h - 1 : h - 2;
+  const lines: Cell[][] = [];
+  // On small screens the title already says what kind of line this is; spend the rows on the words.
+  const texts = ctl.compact && ex.title.endsWith(' line') && ex.lines.length > 1 ? ex.lines.slice(1) : ex.lines;
+  for (const text of texts) {
+    const dash = text.indexOf(' — ');
+    const parts = wrap(text, inner);
+    parts.forEach((part, i) => {
+      if (i === 0 && dash > 0 && dash < part.length) {
+        lines.push([
+          { text: ' ' + part.slice(0, dash), fg: p.askBorder, bg, bold: true },
+          { text: part.slice(dash), fg: p.fg, bg },
+        ]);
+      } else lines.push([{ text: ' ' + part, fg: p.fg, bg }]);
+    });
+  }
+  const shown = lines.slice(0, body);
+  if (lines.length > body && shown.length) {
+    const last = shown[shown.length - 1]!;
+    const tail = last[last.length - 1]!;
+    shown[shown.length - 1] = [...last.slice(0, -1), { ...tail, text: [...tail.text.trimEnd()].slice(0, -1).join('') + '…' }];
+  }
+  while (shown.length < body) shown.push([{ text: '', bg }]);
+  const title = ` Learn · ${ex.title} · ${ctl.deps.config.keys.explain} ask the agent · ${ctl.deps.config.keys.learn} off `;
+  if (ctl.compact) {
+    return (
+      <box height={h} flexDirection="column" backgroundColor={bg}>
+        <Line cells={[{ text: fit(` Learn · ${ex.title}`, ctl.width), fg: p.askBorder, bg, bold: true }]} />
+        {shown.map((l, i) => (
+          <Line key={i} cells={fitCells(l, ctl.width, bg)} />
+        ))}
+      </box>
+    );
+  }
+  return (
+    <box height={h} border borderColor={p.askBorder} title={truncate(title, ctl.width - 4)} backgroundColor={bg} flexDirection="column">
+      {shown.map((l, i) => (
+        <Line key={i} cells={fitCells(l, ctl.width - 2, bg)} />
+      ))}
+    </box>
+  );
+}
+
 const HELP: [KeyAction | string, string][] = [
   ['down', 'move cursor down (also ↓)'],
   ['up', 'move cursor up (also ↑)'],
@@ -296,6 +349,8 @@ const HELP: [KeyAction | string, string][] = [
   ['reload', 'reload the diff'],
   ['wrap', 'toggle line wrap'],
   ['sidebar', 'toggle the layers pane'],
+  ['learn', 'learning mode: plain-language explanations of each line'],
+  ['explain', 'ask the agent to explain the cursor line for a beginner'],
   ['help', 'this help'],
   ['quit', 'quit'],
 ];
@@ -390,6 +445,7 @@ export function App({ ctl }: { ctl: Controller }) {
         {ctl.sidebarDocked && <Sidebar ctl={ctl} overlay={false} />}
         <MainPane ctl={ctl} />
       </box>
+      {ctl.learnHeight > 0 && <LearnPanel ctl={ctl} />}
       {ctl.editor && <EditorBox ctl={ctl} />}
       <Footer ctl={ctl} />
       {ctl.sideOverlay && !ctl.sidebarDocked && <Sidebar ctl={ctl} overlay />}

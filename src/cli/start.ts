@@ -8,7 +8,7 @@ import { startServer, type RunningServer, type Submitter } from '../server/serve
 import { Session, type Resolver } from '../server/session.ts';
 import { flagBool, flagStr, parseArgs, rejectUnknown, type Parsed } from './args.ts';
 
-const BOOLS = ['staged', 'worktree', 'watch', 'transparent', 'headless', 'json'];
+const BOOLS = ['staged', 'worktree', 'watch', 'transparent', 'headless', 'json', 'learn'];
 const VALUES = ['theme'];
 
 export function localOptionsFrom(p: Parsed): LocalOptions {
@@ -66,8 +66,9 @@ async function launch(
   const config = loadConfig(src.repoRoot, {
     theme: flagStr(p, 'theme'),
     transparent: p.flags.has('transparent') ? flagBool(p, 'transparent') : undefined,
+    learn: p.flags.has('learn') ? flagBool(p, 'learn') : undefined,
   });
-  const session = await Session.open(src, resolver, { autoSend: config.asks.autoSend });
+  const session = await Session.open(src, resolver, { autoSend: config.asks.autoSend, learning: config.learn });
   const submit = makeSubmitter?.(session);
   const server = startServer(session, { submit });
   const watch = flagBool(p, 'watch');

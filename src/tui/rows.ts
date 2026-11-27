@@ -1,6 +1,7 @@
 import { hunkStats } from '../core/diff.ts';
 import type { Comment, Hunk, Layer, Plan } from '../core/types.ts';
 import { UNPLACED_ID, UNSTACKED_ID } from '../core/types.ts';
+import { RISK_BLURB } from '../core/glossary.ts';
 import { TAB_WIDTH, flattenMarkdown, width, wrap } from './text.ts';
 
 /** A styled run of text. Colours are semantic roles resolved against the palette at render time. */
@@ -27,6 +28,8 @@ export type BuildInput = {
   wrap: boolean;
   /** Phone-sized layout: one line-number column, tighter indents, shortened paths. */
   compact?: boolean;
+  /** Learning mode: show the layer's plain-language explanation and what its risk level means. */
+  learning?: boolean;
 };
 
 export type BuiltRows = { rows: Row[]; numWidth: number; codeWidth: number };
@@ -181,6 +184,25 @@ export function buildRows(input: BuildInput): BuiltRows {
       lines.forEach((l, i) =>
         cardText(`card:why${i}`, i === 0 ? [{ text: ' Why: ', role: 'muted' }, { text: l }] : [{ text: '      ' + l }]),
       );
+    }
+    if (input.learning) {
+      const blocks: { label: string; text: string }[] = [];
+      if (layer.explain) blocks.push({ label: ' In plain words: ', text: flattenMarkdown(layer.explain) });
+      blocks.push({ label: ` Risk (${layer.risk}): `, text: RISK_BLURB[layer.risk].replace(/^\w+ risk: /, '') });
+      for (const [bi, b] of blocks.entries()) {
+        const lines = compact ? wrap(b.text, paneW - 2) : wrap(b.text, paneW - b.label.length - 1);
+        if (compact) {
+          cardText(`card:learn${bi}h`, [{ text: b.label.trimEnd(), role: 'ask', bold: true }]);
+          lines.forEach((l, i) => cardText(`card:learn${bi}:${i}`, [{ text: ' ' + l }]));
+        } else {
+          lines.forEach((l, i) =>
+            cardText(`card:learn${bi}:${i}`, [
+              { text: i === 0 ? b.label : ' '.repeat(b.label.length), role: 'ask', bold: i === 0 },
+              { text: l },
+            ]),
+          );
+        }
+      }
     }
     if (layer.dependsOn?.length) {
       const deps = layer.dependsOn

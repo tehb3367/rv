@@ -1,7 +1,7 @@
 import type { Hunk, Layer, Plan, Risk } from './types.ts';
 import { UNPLACED_ID, UNSTACKED_ID } from './types.ts';
 
-export const LIMITS = { title: 60, why: 800, minLayers: 1, maxLayers: 30 } as const;
+export const LIMITS = { title: 60, why: 800, explain: 2000, minLayers: 1, maxLayers: 30 } as const;
 const RISKS: readonly Risk[] = ['low', 'med', 'high'];
 
 export type ValidationFailure = {
@@ -57,6 +57,9 @@ export function validatePlan(input: unknown, hunks: Hunk[]): ValidationResult {
     if (typeof raw.risk !== 'string' || !RISKS.includes(raw.risk as Risk))
       errors.push(`${label}.risk must be one of low, med, high`);
     if (raw.group !== undefined && typeof raw.group !== 'string') errors.push(`${label}.group must be a string`);
+    if (raw.explain !== undefined && typeof raw.explain !== 'string') errors.push(`${label}.explain must be a string`);
+    else if (typeof raw.explain === 'string' && [...raw.explain].length > LIMITS.explain)
+      errors.push(`${label}.explain is ${[...raw.explain].length} characters, the limit is ${LIMITS.explain}`);
     if (raw.dependsOn !== undefined && (!Array.isArray(raw.dependsOn) || raw.dependsOn.some((d) => typeof d !== 'string')))
       errors.push(`${label}.dependsOn must be an array of layer ids`);
     let hunkIds: string[] = [];
@@ -74,6 +77,7 @@ export function validatePlan(input: unknown, hunks: Hunk[]): ValidationResult {
       risk: (RISKS.includes(raw.risk as Risk) ? raw.risk : 'low') as Risk,
       dependsOn: Array.isArray(raw.dependsOn) ? (raw.dependsOn.filter((d) => typeof d === 'string') as string[]) : undefined,
       hunks: hunkIds,
+      explain: typeof raw.explain === 'string' && raw.explain.trim() ? raw.explain : undefined,
     });
   });
 
@@ -122,6 +126,7 @@ export function validatePlan(input: unknown, hunks: Hunk[]): ValidationResult {
       risk: l.risk,
       ...(l.dependsOn && l.dependsOn.length ? { dependsOn: l.dependsOn } : {}),
       hunks: l.hunks,
+      ...(l.explain ? { explain: l.explain } : {}),
     })),
   };
   return { ok: true, plan };

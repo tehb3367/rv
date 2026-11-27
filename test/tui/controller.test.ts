@@ -251,3 +251,60 @@ describe('phone-sized terminals', () => {
     expect(ctl.editorHeight).toBe(6); // 4 lines + border
   });
 });
+
+describe('learning mode', () => {
+  beforeEach(setup);
+
+  test('L toggles it, the panel takes rows, and the session reports it', () => {
+    expect(ctl.learning).toBe(false);
+    const before = ctl.paneHeight;
+    press('L');
+    expect(ctl.learning).toBe(true);
+    expect(session.status().learning).toBe(true);
+    expect(session.review().learning).toBe(true);
+    expect(ctl.paneHeight).toBe(before - ctl.learnHeight);
+    ctl.resize(45, 20);
+    expect(ctl.learnHeight).toBe(5);
+    press('L');
+    expect(ctl.learnHeight).toBe(0);
+  });
+
+  test('the panel explains whatever the cursor is on', () => {
+    press('L');
+    expect(ctl.explainCursor().title).toBe('getting started');
+    press('n');
+    expect(ctl.explainCursor().lines[0]).toContain('A "hunk" is one chunk of changes');
+    press('k');
+    expect(ctl.explainCursor().title).toBe('file');
+    expect(ctl.explainCursor().lines[0]).toContain('TypeScript file');
+    press('j', 'j');
+    const ex = ctl.explainCursor();
+    expect(ex.title).toMatch(/line$/);
+    expect(ex.lines.some((l) => l.startsWith('const — '))).toBe(true);
+  });
+
+  test('x sends a beginner ask right away, marked learning, even with learning mode off', async () => {
+    press('n', 'j', 'j', 'j');
+    const waiting = session.wait(5);
+    press('x');
+    const r = await waiting;
+    expect(r.event).toBe('asks');
+    if (r.event === 'asks') {
+      expect(r.asks).toHaveLength(1);
+      expect(r.asks[0]!.learning).toBe(true);
+      expect(r.asks[0]!.body).toStartWith("Explain this line to me like I'm new to code");
+      expect(r.asks[0]!.line).toBeDefined();
+      expect(r.learning).toBe(false);
+    }
+  });
+
+  test('the layer card shows the plain-words explanation and the risk meaning', () => {
+    const ids = session.hunks.map((h) => h.id);
+    session.setStack({ version: 1, title: 'P', layers: [{ id: 'L1', title: 'All', why: 'w', risk: 'high', hunks: ids, explain: 'Numbers get bigger.' }] });
+    const text = () => ctl.rows.rows.filter((r) => r.kind === 'text' && r.layerCard).map((r) => (r.kind === 'text' ? r.segs.map((s) => s.text).join('') : '')).join('\n');
+    expect(text()).not.toContain('In plain words');
+    press('L');
+    expect(text()).toContain('In plain words: Numbers get bigger.');
+    expect(text()).toContain('Risk (high):');
+  });
+});

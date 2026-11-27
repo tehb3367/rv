@@ -207,6 +207,7 @@ describe('agent commands', () => {
         { id: 'L2', reviewed: 0, total: 2 },
       ],
       pendingAsks: 0,
+      learning: false,
     });
     let nav: unknown = null;
     const off = session.bus.on((e) => e.type === 'navigate' && (nav = e.target));

@@ -14,6 +14,14 @@ import { buildKeymap, keyString, type RawKey } from './keys.ts';
 import { anchorOf, buildRows, type BuiltRows, type Row } from './rows.ts';
 import { styleLine, type StyledText } from './render.ts';
 import { wrap } from './text.ts';
+import {
+  RISK_BLURB,
+  explainFileStatus,
+  explainFileType,
+  explainHunkHeader,
+  explainLine,
+  type Explanation,
+} from '../core/glossary.ts';
 
 export const NARROW = 100;
 /** Below this the layout goes compact (phones): no pane border, one number column, wrap on. */
@@ -161,6 +169,17 @@ export class Controller {
     return Math.min(max, Math.max(1, lines)) + 2;
   }
 
+  get learning(): boolean {
+    return this.session.learning;
+  }
+
+  /** Rows of the learning panel, including its border (or title row when compact). */
+  get learnHeight(): number {
+    if (!this.learning || this.tooSmall) return 0;
+    if (this.compact) return this.height >= 16 ? 5 : 3;
+    return Math.max(4, Math.min(9, Math.floor(this.height / 4)));
+  }
+
   get bannerHeight(): number {
     return this.session.rec.stale ? 1 : 0;
   }
@@ -168,7 +187,7 @@ export class Controller {
   /** Inner height of the main pane: header, banner, footer and editor come off; a border or (compact) a title row. */
   get paneHeight(): number {
     const chrome = this.compact ? 1 : 2;
-    return Math.max(1, this.height - 1 - this.bannerHeight - 1 - this.editorHeight - chrome);
+    return Math.max(1, this.height - 1 - this.bannerHeight - 1 - this.editorHeight - this.learnHeight - chrome);
   }
 
   resize(w: number, h: number): void {
@@ -191,7 +210,7 @@ export class Controller {
   }
 
   get rows(): BuiltRows {
-    const key = `${this.layerIdx}|${this.layer.id}|${this.paneWidth}|${this.wrap}|${this.compact}|${this.dataVersion}`;
+    const key = `${this.layerIdx}|${this.layer.id}|${this.paneWidth}|${this.wrap}|${this.compact}|${this.learning}|${this.dataVersion}`;
     if (this.built?.key === key) return this.built.value;
     const s = this.session;
     const value = buildRows({
@@ -204,6 +223,7 @@ export class Controller {
       width: this.paneWidth,
       wrap: this.wrap,
       compact: this.compact,
+      learning: this.learning,
     });
     this.built = { key, value };
     return value;
@@ -330,6 +350,11 @@ export class Controller {
         this.notify();
         return;
       case 'agent':
+        this.notify();
+        return;
+      case 'learning':
+        this.invalidate();
+        this.keepCursorVisible();
         this.notify();
         return;
       case 'done':
@@ -646,6 +671,98 @@ export class Controller {
     this.deps.quit();
   }
 
+  // ---------- learning mode ----------
+
+  toggleLearning(): void {
+    this.session.setLearning(!this.learning);
+    this.invalidate();
+    this.keepCursorVisible();
+    this.say(
+      this.learning
+        ? `learning mode on — the panel explains the cursor line; ${this.deps.config.keys.explain} asks the agent to explain it`
+        : 'learning mode off',
+      'riskLow',
+      5000,
+    );
+  }
+
+  /** Ask the agent, right away, to explain the cursor line for someone new to code. */
+  explainHere(): void {
+    const row = this.currentRow();
+    const hunkId = row && 'hunkId' in row ? row.hunkId : undefined;
+    if (!row || !hunkId) {
+      this.say('move the cursor onto a hunk or line first', 'riskMed');
+      return;
+    }
+    const h = this.session.hunkMap.get(hunkId)!;
+    const line = anchorOf(row, this.session.hunkMap);
+    const code = row.kind === 'line' ? h.lines[row.lineIndex]!.text.trim() : '';
+    const body = code
+      ? `Explain this line to me like I'm new to code: what it does, why this change might have been made, and any words I should learn.\n\n\`${code}\``
+      : `Explain this chunk of ${h.path} to me like I'm new to code: what it does and why it changed.`;
+    const waiting = this.session.agentWaiting;
+    // Always a beginner question, even when learning mode is off.
+    this.session.addHumanComment({ hunkId, line, kind: 'ask', body, send: true, learning: true });
+    this.say(waiting ? 'asked the agent to explain this' : 'explain request queued — it reaches the agent when it runs rv wait', 'riskLow');
+  }
+
+  /** What the learning panel says about the cursor row. */
+  explainCursor(): Explanation {
+    const row = this.currentRow();
+    const s = this.session;
+    const l = this.layer;
+    if (!row) return { title: 'learn', lines: ['Nothing here yet.'] };
+    if (row.kind === 'line') {
+      const h = s.hunkMap.get(row.hunkId)!;
+      return explainLine(h.lines[row.lineIndex]!, h);
+    }
+    if (row.kind === 'hunk') {
+      const h = s.hunkMap.get(row.hunkId)!;
+      return { title: 'hunk', lines: [explainHunkHeader(h), `Press ${this.deps.config.keys.reviewed} when you've read it to mark it reviewed.`] };
+    }
+    if (row.kind === 'collapsed') {
+      return { title: 'reviewed', lines: [`You marked this chunk reviewed, so it is folded away. Press ${this.deps.config.keys.expand} to open it again.`] };
+    }
+    if (row.commentId) {
+      const c = s.state.comments.find((x) => x.id === row.commentId);
+      const what =
+        c?.kind === 'ask'
+          ? c.status === 'draft'
+            ? `a question for the agent that hasn't been sent yet. Press ${this.deps.config.keys.send} to send it.`
+            : c.status === 'pending'
+              ? 'a question you sent. The agent will answer it here when it next checks in.'
+              : 'a question you asked. The agent\'s reply is in the box underneath.'
+        : c?.kind === 'reply' ? 'the agent\'s answer to your question.'
+        : c?.kind === 'note' ? 'a note the agent left to point out something that isn\'t obvious.'
+        : 'a review comment: feedback that goes to GitHub when you submit (P), or into the export (E).';
+      return { title: 'comment', lines: [`This box is ${what}`] };
+    }
+    if (row.key.startsWith('f:') && row.hunkId) {
+      const h = s.hunkMap.get(row.hunkId)!;
+      return { title: 'file', lines: [explainFileType(h.path), explainFileStatus(h.fileStatus, h.oldPath)] };
+    }
+    if (row.layerCard) {
+      if (l.id === UNSTACKED_ID)
+        return {
+          title: 'getting started',
+          lines: [
+            'This is a code review: a careful read of a change before it is accepted. Green + lines were added, red - lines were removed.',
+            'No agent has planned this review yet, so every change is listed file by file. An agent can split it into "layers": small steps in a sensible order.',
+            `Move with j/k, press ${this.deps.config.keys.explain} on any line to have the agent explain it, and ${this.deps.config.keys.help} for all keys.`,
+          ],
+        };
+      return {
+        title: 'layer',
+        lines: [
+          `A layer is one step of the review: a group of related changes your agent put together, in an order that builds up from the basics.`,
+          RISK_BLURB[l.risk],
+          `Use ] and [ to move between layers, n to jump to the next chunk.`,
+        ],
+      };
+    }
+    return { title: 'learn', lines: ['Move the cursor onto a line to see what it means.'] };
+  }
+
   // ---------- editor ----------
 
   private async saveEditor(): Promise<void> {
@@ -884,6 +1001,10 @@ export class Controller {
         return this.notify();
       case 'quit':
         return this.requestQuit();
+      case 'learn':
+        return this.toggleLearning();
+      case 'explain':
+        return this.explainHere();
     }
   }
 

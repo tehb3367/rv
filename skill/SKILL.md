@@ -51,7 +51,8 @@ A plan is JSON:
       "title": "Session schema",
       "why": "Adds the Session type the store writes. Check the optional fields default sensibly.",
       "risk": "low",
-      "hunks": ["3f9a1c22be", "a01b77e4c0"]
+      "hunks": ["3f9a1c22be", "a01b77e4c0"],
+      "explain": "optional: a plain-language explanation for learning mode (see below)"
     },
     {
       "id": "L2",
@@ -85,7 +86,8 @@ Hard rules, enforced by `rv stack set`:
 2. No unknown hunk ids.
 3. Layer ids are unique, there are 1 to 30 layers, and no layer is empty.
 4. `dependsOn` only names layers earlier in the list.
-5. `title` is at most 60 characters, `why` at most 800, `risk` is `low`, `med` or `high`.
+5. `title` is at most 60 characters, `why` at most 800, `explain` (optional) at most 2000, and `risk` is
+   `low`, `med` or `high`.
 
 ## 4. Submit
 
@@ -134,6 +136,27 @@ if you lose track.
 If an ask requests a code change, make it only if the user has allowed edits in this session. Otherwise
 reply with the proposed patch in a fenced block. After editing files, run `rv reload --json` so the review
 picks up the change, then check `rv stack get --json` for new hunks.
+
+## Learning mode
+
+The reviewer may be new to code. When `"learning": true` appears in `rv review`, `rv stack get`,
+`rv status` or an `rv wait` result (and on every ask marked `"learning": true`), adapt everything you write:
+
+- **Plan:** give every layer an `explain` field (up to 2000 characters) in plain language, in addition
+  to `why`. Say what this part of the program is for in everyday terms, what the change does for a user,
+  and what a careful reader should notice. Define any technical word the first time you use it
+  ("a *cache* keeps a copy of an answer so it doesn't have to be fetched again"). Prefer concrete
+  analogies to jargon. Keep `why` short and technical as usual; `explain` is the beginner version.
+- **Notes:** you may add up to one note per hunk (the ~10 total limit does not apply) where a line uses
+  an idea a beginner would not know. Explain the idea, not the syntax rv already explains.
+- **Answers:** start from the basics, then build up. Say what the code does before how. Use a tiny
+  example when it helps, and avoid unexplained abbreviations. Asks that begin "Explain this line to me
+  like I'm new to code" come from the `x` key: answer in 3–6 short sentences, quote the line's key words
+  and say what each does, then why the change was likely made.
+- Never be condescending, and never refuse to explain something because it is "obvious".
+
+rv already shows a built-in panel that explains diff basics (+ and - lines, hunk headers, file types,
+common keywords), so spend your words on what this particular code means and why it changed.
 
 ## 7. Never
 

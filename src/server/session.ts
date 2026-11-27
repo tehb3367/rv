@@ -18,7 +18,7 @@ export class SessionError extends Error {
 
 export type Resolver = (args?: string[]) => Promise<DiffSource>;
 
-export type WaitResult = { event: 'asks'; asks: Comment[] } | { event: 'done' } | { event: 'timeout' };
+export type WaitResult = { event: 'asks'; asks: Comment[]; learning: boolean } | { event: 'done' } | { event: 'timeout' };
 
 type Waiter = { resolve: (r: WaitResult) => void; timer: ReturnType<typeof setTimeout> };
 
@@ -30,7 +30,7 @@ export function parseLineAnchor(s: string): LineAnchor {
   return { side: m[1] as 'old' | 'new', number: parseInt(m[2]!, 10) };
 }
 
-export type SessionOptions = { autoSend?: boolean; debounceMs?: number };
+export type SessionOptions = { autoSend?: boolean; debounceMs?: number; learning?: boolean };
 
 export class Session {
   readonly bus = new EventBus();
@@ -43,12 +43,21 @@ export class Session {
   private waiters = new Set<Waiter>();
   private ended = false;
   autoSend: boolean;
+  /** Learning mode: the human is new to code. Reported to the agent so it explains from the basics. */
+  learning: boolean;
 
   private constructor(
     private readonly resolver: Resolver,
     private readonly opts: SessionOptions,
   ) {
     this.autoSend = opts.autoSend ?? false;
+    this.learning = opts.learning ?? false;
+  }
+
+  setLearning(on: boolean): void {
+    if (this.learning === on) return;
+    this.learning = on;
+    this.bus.emit({ type: 'learning', on });
   }
 
   static async open(src: DiffSource, resolver: Resolver, opts: SessionOptions = {}): Promise<Session> {
@@ -145,13 +154,14 @@ export class Session {
       base: this.src.base,
       head: this.src.headMode === 'commit' ? this.src.head : this.src.headLabel,
       range: `${this.src.baseLabel}..${this.src.headLabel}`,
+      learning: this.learning,
       ...(this.src.prNumber !== undefined ? { prNumber: this.src.prNumber } : {}),
       files,
     };
   }
 
   stack() {
-    return { plan: this.rec.stored, stale: this.rec.stale, newHunks: this.rec.newHunks };
+    return { plan: this.rec.stored, stale: this.rec.stale, newHunks: this.rec.newHunks, learning: this.learning };
   }
 
   comments(filter: { kind?: string; pending?: boolean } = {}): Comment[] {
@@ -169,6 +179,7 @@ export class Session {
         total: l.hunks.length,
       })),
       pendingAsks: this.state.comments.filter((c) => c.kind === 'ask' && c.status === 'pending').length,
+      learning: this.learning,
     };
   }
 
@@ -236,7 +247,7 @@ export class Session {
     });
   }
 
-  addHumanComment(input: { hunkId: string; line?: LineAnchor; kind: 'review' | 'ask'; body: string }): Comment {
+  addHumanComment(input: { hunkId: string; line?: LineAnchor; kind: 'review' | 'ask'; body: string; send?: boolean; learning?: boolean }): Comment {
     const h = this.hunk(input.hunkId);
     this.checkLine(h, input.line);
     const c = this.push({
@@ -246,8 +257,9 @@ export class Session {
       author: 'human',
       kind: input.kind,
       body: input.body,
-      status: input.kind === 'ask' && this.autoSend ? 'pending' : 'draft',
+      status: input.kind === 'ask' && (this.autoSend || input.send) ? 'pending' : 'draft',
       createdAt: new Date().toISOString(),
+      ...(input.kind === 'ask' && (input.learning ?? this.learning) ? { learning: true } : {}),
     });
     if (c.status === 'pending') this.wake();
     return c;
@@ -340,7 +352,7 @@ export class Session {
     if (!this.undelivered().length) return;
     const first = this.waiters.values().next().value;
     if (!first) return;
-    this.release(first, { event: 'asks', asks: this.takeAsks() });
+    this.release(first, { event: 'asks', asks: this.takeAsks(), learning: this.learning });
   }
 
   private release(w: Waiter, r: WaitResult): void {
@@ -353,7 +365,7 @@ export class Session {
   /** Block until the human sends asks or ends the review. Each ask is returned once. */
   wait(timeoutSec: number, signal?: AbortSignal): Promise<WaitResult> {
     if (this.ended) return Promise.resolve({ event: 'done' });
-    if (this.undelivered().length) return Promise.resolve({ event: 'asks', asks: this.takeAsks() });
+    if (this.undelivered().length) return Promise.resolve({ event: 'asks', asks: this.takeAsks(), learning: this.learning });
     return new Promise((resolve) => {
       const w: Waiter = {
         resolve,
